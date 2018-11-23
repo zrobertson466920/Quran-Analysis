@@ -1,6 +1,8 @@
 import glob
 
 import re, nltk
+
+from networkx import Graph
 from nltk.tokenize import RegexpTokenizer
 from nltk.corpus import stopwords
 
@@ -24,6 +26,63 @@ def ngram_convert(list):
     for item in list:
         bi_list.append(tuple(item.split()))
     return bi_list
+
+
+# Grab surahs from corpus according to index
+def get_blob(corpus,surahs):
+    blob = ""
+    for surah in surahs:
+        blob += "".join(corpus[surah])
+    return blob
+
+
+def word_graph(blobs,gm):
+    # Create count array structure n-grams
+    vectorizer = CountVectorizer(stop_words="english", ngram_range=(2, 2))
+    X = vectorizer.fit_transform(blobs)
+    y = np.array(vectorizer.get_feature_names())
+    D = X.toarray()
+
+    print("Common k-words of the Quran")
+    ngrams = ngram_convert(y[D[0].argsort()[-100:][::-1]])
+    print(y[D[0].argsort()[-30:][::-1]])
+    print()
+
+    G = nx.Graph()
+    edge_color = []
+    for index in D[0].argsort()[-100:][::-1]:
+        item = tuple(y[index].split())
+        for datum in item:
+            G.add_node(datum)
+        for j in range(0, len(item) - 1):
+            G.add_edge(item[j], item[j + 1], weight = np.log(D[0][index]), color = gm)
+
+    cur_graph: Graph = G  # whatever graph you're working with
+
+    if not nx.is_connected(cur_graph):
+        # get a list of unconnected networks
+        sub_graphs = list(nx.connected_component_subgraphs(cur_graph))
+
+        main_graph = sub_graphs[0]
+
+        # find the largest network in that list
+        for sg in sub_graphs:
+            if len(sg.nodes()) > len(main_graph.nodes()):
+                main_graph = sg
+
+    '''remove = [(u, v) for (u, v, d) in G.edges(data=True) if d['weight'] < np.log(4)]
+    cur_graph.remove_edges_from(remove)
+    remove = [node for node, degree in cur_graph.degree() if degree < 3]
+    cur_graph.remove_nodes_from(remove)
+    #cur_graph.remove_nodes_from(["allah", "lord", "people","say"])
+    remove = [node for node, degree in cur_graph.degree() if degree < 1]
+    cur_graph.remove_nodes_from(remove)'''
+
+    G = cur_graph
+    cmap = plt.cm.get_cmap("Blues")
+    for (u, v, d) in G.edges(data=True):
+        edge_color.append(d['weight'])
+    return G, cmap, edge_color
 
 
 if __name__ == '__main__':
@@ -69,65 +128,13 @@ if __name__ == '__main__':
     for index in range(0,len(chrono)):
         o_corpus[chrono[index].zfill(3)] = corpus[str(index+1).zfill(3)]
 
-    # Create blob of All Surahs
-    blob = ""
-    count = []
-    tokenizer = RegexpTokenizer(r'\w+')
-    for surah in corpus:
-        count.append(len(tokenizer.tokenize("".join(o_corpus[surah]))))
-        blob += "".join(o_corpus[surah])
-
-    vectorizer = CountVectorizer(stop_words = "english",ngram_range=(2,2))
-    X = vectorizer.fit_transform([blob])
-    y = np.array(vectorizer.get_feature_names())
-    D = X.toarray()
-
-    print("Median Length of Surahs")
-    print(np.median(count))
-    print()
-
-    print("Phrases of the Quran")
-    ngrams = ngram_convert(y[D[0].argsort()[-500:][::-1]])
-    print(y[D[0].argsort()[-30:][::-1]])
-    print()
-
-    G = nx.Graph()
-    edge_color = []
-    for index in D[0].argsort()[-1000:][::-1]:
-        item = tuple(y[index].split())
-        for datum in item:
-            G.add_node(datum)
-        for j in range(0, len(item) - 1):
-            G.add_edge(item[j], item[j + 1], weight=np.log(D[0][index]))
-
-    cur_graph = G  # whatever graph you're working with
-
-    if not nx.is_connected(cur_graph):
-        # get a list of unconnected networks
-        sub_graphs = list(nx.connected_component_subgraphs(cur_graph))
-
-        main_graph = sub_graphs[0]
-
-        # find the largest network in that list
-        for sg in sub_graphs:
-            if len(sg.nodes()) > len(main_graph.nodes()):
-                main_graph = sg
-
-    cur_graph.remove_nodes_from(["allah","lord","time"])
-    remove = [(u, v) for (u, v, d) in G.edges(data=True) if d['weight'] < np.log(6)]
-    cur_graph.remove_edges_from(remove)
-    remove = [node for node, degree in cur_graph.degree() if degree < 3]
-    cur_graph.remove_nodes_from(remove)
-    remove = [node for node, degree in cur_graph.degree() if degree < 1]
-    cur_graph.remove_nodes_from(remove)
-
-    G = cur_graph
-    cmap = plt.cm.get_cmap("inferno")
-    for (u, v, d) in G.edges(data=True):
-        edge_color.append(d['weight'])
-
     print("Plotting Graph")
+    blobs = []
+    for gm,section in [("Reds","Medinan")]:
+        # Create blob for subset of Surahs (Medinan/Meccan)
+        surahs = [str(index+1).zfill(3) for index in list(range(0,len(locations)))]
+        blobs.append(get_blob(o_corpus,surahs))
+        G, cmap, edge_color = word_graph(blobs,gm)
     plt.figure()
-    nx.draw_spectral(G, node_color='#A0CBE2', with_labels=True, font_weight='bold', font_size=20, edge_cmap=cmap,
-            edge_color=edge_color)
+    nx.draw(G, node_color='#A0CBE2', with_labels=True, font_weight='bold', font_size=20,cmap = cmap, edge_color = edge_color)
     plt.show()
